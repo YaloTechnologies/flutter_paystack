@@ -1,0 +1,79 @@
+name: Malware and Code Review
+
+on:
+  pull_request:
+    branches:
+      - main
+      - quality
+      - dev
+      - master
+      - prod
+
+  push:
+    branches:
+      - main
+      - quality
+      - dev
+      - master
+      - prod
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+  security-events: write
+  actions: read
+jobs:
+  clamav-scan:
+    name: ClamAV Malware Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ClamAV scan using Docker
+        run: |
+          docker run --rm \
+            -v "$PWD:/scan" \
+            clamav/clamav:stable \
+            clamscan -r \
+              --infected \
+              --exclude-dir="\.git" \
+              --exclude-dir="node_modules" \
+              --exclude-dir="bin" \
+              --exclude-dir="obj" \
+              --exclude-dir="dist" \
+              --exclude-dir="build" \
+              /scan
+
+  semgrep-review:
+    name: Semgrep Code Review
+    runs-on: ubuntu-latest
+    needs: clamav-scan
+
+    container:
+      image: semgrep/semgrep
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep security scan
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --config p/csharp \
+            --json \
+            --output semgrep-results.json || true
+
+          cat semgrep-results.json
+
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --config p/csharp \
+            --error
